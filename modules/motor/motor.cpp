@@ -101,3 +101,7 @@ void motorControlUpdate()
 }
 
 //=====[Implementations of private functions]==================================
+     
+}
+
+//=====[Implementations of private functions]==================================
