@@ -17,7 +17,7 @@
 #include "GLCD_fire_alarm.h"
 #include "motor.h"
 #include "gate.h"
-
+#include "pc_serial_com.h"
 //=====[Declaration of private defines]========================================
 
 #define DISPLAY_REFRESH_TIME_REPORT_MS 1000
@@ -135,6 +135,32 @@ static void userInterfaceMatrixKeypadUpdate()
 
     if( keyReleased != '\0' ) {
 
+        switch( keyReleased ) {
+            case '1':
+                gateOpen();
+                displayCharPositionWrite(5, 3);
+                displayStringWrite("Opening ");
+                pcSerialComStringWrite("Keypad: Gate opening\r\n");
+            break;
+
+            case '2':
+                gateClose();
+                displayCharPositionWrite(5, 3);
+                displayStringWrite("Closing ");
+                pcSerialComStringWrite("Keypad: Gate closing\r\n");
+            break;
+
+            case '3':
+                motorDirectionWrite(STOPPED);
+                displayCharPositionWrite(5, 3);
+                displayStringWrite("Stopped ");
+                pcSerialComStringWrite("Keypad: Gate stopped\r\n");
+            break;
+
+            default:
+            break;
+        }
+
         if( sirenStateRead() && !systemBlockedStateRead() ) {
             if( !incorrectCodeStateRead() ) {
                 codeSequenceFromUserInterface[numberOfCodeChars] = keyReleased;
@@ -162,19 +188,18 @@ static void userInterfaceDisplayReportStateInit()
 {
     displayState = DISPLAY_REPORT_STATE;
     displayRefreshTimeMs = DISPLAY_REFRESH_TIME_REPORT_MS;
-    
-    displayModeWrite( DISPLAY_MODE_CHAR );
 
-    displayClear();
-
-    displayCharPositionWrite ( 0,0 );
+    displayCharPositionWrite( 0, 0 );
     displayStringWrite( "Temperature:" );
 
-    displayCharPositionWrite ( 0,1 );
+    displayCharPositionWrite( 0, 1 );
     displayStringWrite( "Gas:" );
     
-    displayCharPositionWrite ( 0,2 );
+    displayCharPositionWrite( 0, 2 );
     displayStringWrite( "Alarm:" );
+
+    displayCharPositionWrite( 0, 3 );
+    displayStringWrite( "Gate:" );
 }
 
 static void userInterfaceDisplayReportStateUpdate()
@@ -182,20 +207,32 @@ static void userInterfaceDisplayReportStateUpdate()
     char temperatureString[3] = "";
     
     sprintf(temperatureString, "%.0f", temperatureSensorReadCelsius());
-    displayCharPositionWrite ( 12,0 );
-    displayStringWrite( temperatureString );
-    displayCharPositionWrite ( 14,0 );
-    displayStringWrite( "'C" );
+    displayCharPositionWrite(12, 0);
+    displayStringWrite(temperatureString);
+    displayCharPositionWrite(14, 0);
+    displayStringWrite("'C");
 
-    displayCharPositionWrite ( 4,1 );
-
-    if ( gasDetectorStateRead() ) {
-        displayStringWrite( "Detected    " );
+    displayCharPositionWrite(4, 1);
+    if (gasDetectorStateRead()) {
+        displayStringWrite("Detected    ");
     } else {
-        displayStringWrite( "Not Detected" );
+        displayStringWrite("Not Detected");
     }
-    displayCharPositionWrite ( 6,2 );
-    displayStringWrite( "OFF" );
+
+    displayCharPositionWrite(6, 2);
+    if (sirenStateRead()) {
+        displayStringWrite("ON ");
+    } else {
+        displayStringWrite("OFF");
+    }
+
+    displayCharPositionWrite(5, 3);
+    switch (gateStatusRead()) {
+        case GATE_CLOSED:   displayStringWrite("Closed  "); break;
+        case GATE_OPEN:     displayStringWrite("Open    "); break;
+        case GATE_OPENING:  displayStringWrite("Opening "); break;
+        case GATE_CLOSING:  displayStringWrite("Closing "); break;
+    }
 }
 
 static void userInterfaceDisplayAlarmStateInit()
@@ -235,50 +272,64 @@ static void userInterfaceDisplayAlarmStateUpdate()
         break;                   
     }
 }
-
 static void userInterfaceDisplayInit()
 {
-    displayInit( DISPLAY_TYPE_GLCD_ST7920, DISPLAY_CONNECTION_SPI );
+    displayInit( DISPLAY_CONNECTION_I2C_PCF8574_IO_EXPANDER );
     userInterfaceDisplayReportStateInit();
 }
 
 static void userInterfaceDisplayUpdate()
 {
     static int accumulatedDisplayTime = 0;
+    static gateStatus_t lastGateStatus = GATE_CLOSED;
     
-    if( accumulatedDisplayTime >=
-        displayRefreshTimeMs ) {
-
+    if( accumulatedDisplayTime >= displayRefreshTimeMs ) {
         accumulatedDisplayTime = 0;
 
-        switch ( displayState ) {
-            case DISPLAY_REPORT_STATE:
-                userInterfaceDisplayReportStateUpdate();
+        char temperatureString[3] = "";
+        sprintf(temperatureString, "%.0f", temperatureSensorReadCelsius());
+        displayCharPositionWrite(12, 0);
+        displayStringWrite(temperatureString);
+        displayCharPositionWrite(14, 0);
+        displayStringWrite("'C");
 
-                if ( sirenStateRead() ) {
-                    userInterfaceDisplayAlarmStateInit();
-                }
-            break;
-
-            case DISPLAY_ALARM_STATE:
-                userInterfaceDisplayAlarmStateUpdate();
-
-                if ( !sirenStateRead() ) {
-                    userInterfaceDisplayReportStateInit();
-                }
-            break;
-
-            default:
-                userInterfaceDisplayReportStateInit();
-            break;
+        displayCharPositionWrite(4, 1);
+        if (gasDetectorStateRead()) {
+            displayStringWrite("Detected    ");
+        } else {
+            displayStringWrite("Not Detected");
         }
 
-   } else {
+        displayCharPositionWrite(6, 2);
+        if (sirenStateRead()) {
+            displayStringWrite("ON !");
+        } else {
+            displayStringWrite("OFF ");
+        }
+
+        displayCharPositionWrite(5, 3);
+        switch (gateStatusRead()) {
+            case GATE_CLOSED:   displayStringWrite("Closed  "); break;
+            case GATE_OPEN:     displayStringWrite("Open    "); break;
+            case GATE_OPENING:  displayStringWrite("Opening "); break;
+            case GATE_CLOSING:  displayStringWrite("Closing "); break;
+        }
+
+        if( gateStatusRead() != lastGateStatus ) {
+            lastGateStatus = gateStatusRead();
+            switch( lastGateStatus ) {
+                case GATE_CLOSED:   pcSerialComStringWrite("Gate status: Closed\r\n");   break;
+                case GATE_OPEN:     pcSerialComStringWrite("Gate status: Open\r\n");     break;
+                case GATE_OPENING:  pcSerialComStringWrite("Gate status: Opening\r\n");  break;
+                case GATE_CLOSING:  pcSerialComStringWrite("Gate status: Closing\r\n");  break;
+            }
+        }
+
+    } else {
         accumulatedDisplayTime =
             accumulatedDisplayTime + SYSTEM_TIME_INCREMENT_MS;        
     }
 }
-
 static void incorrectCodeIndicatorUpdate()
 {
     incorrectCodeLed = incorrectCodeStateRead();
@@ -292,6 +343,11 @@ static void systemBlockedIndicatorUpdate()
 static void gateOpenButtonCallback()
 {
     gateOpen();
+}
+
+static void gateCloseButtonCallback()
+{
+    gateClose();
 }
 
 static void gateCloseButtonCallback()
