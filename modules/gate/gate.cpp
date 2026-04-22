@@ -88,3 +88,4 @@ static void gateCloseLimitSwitchCallback()
         gateCloseLimitSwitchState = ON;
     }
 }
+
