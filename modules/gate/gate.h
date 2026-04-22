@@ -26,3 +26,4 @@ gateStatus_t gateStatusRead();
 //=====[#include guards - end]=================================================
 
 #endif // _GATE_H_
+
